@@ -4,13 +4,31 @@ entrypoints Program ;
 
 Program.   Program ::= [TopDef] ;
 
-FnDef.	   TopDef ::= Type Ident "(" [Arg] ")" Block ;
+TopFun.	   TopDef ::= FunDef ;
+
+ClassDef.  TopDef ::= "class" Ident ClassBlock ; 
+
+ClassDefE.  TopDef ::= "class" Ident "extends" Ident ClassBlock ; 
 
 separator nonempty TopDef "" ;
 
 Arg. 	   Arg ::= Type Ident;
 
 separator  Arg "," ;
+
+-- functions -----------------------------------------------
+
+FnDef.	   FunDef ::= Type Ident "(" [Arg] ")" Block ;
+
+-- classes -------------------------------------------------
+
+ClassBlock. ClassBlock ::=  "{" [ClassElem] "}" ;
+
+ClassFun.	ClassElem ::= FunDef ;
+
+ClassAtr.	ClassElem ::= Type Ident ;
+
+separator nonempty ClassElem "" ;
 
 -- statements ----------------------------------------------
 
@@ -58,6 +76,10 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
+List.      Type ::= Type "[]" ;
+
+Class.     Type ::= Ident ;
+
 internal   Fun. Type ::= Type "(" [Type] ")" ;
 
 separator  Type "," ;
@@ -65,6 +87,14 @@ separator  Type "," ;
 -- Expressions ---------------------------------------------
 
 EVar.      Expr6 ::= Ident ;
+
+EArr.      Expr6 ::= ArrAccess ;
+
+EFld.      Expr6 ::= FieldAccess ;
+
+EMth.      Expr6 ::= MethCall ;
+
+EObj.      Expr6 ::= Alloc ;
 
 ELitInt.   Expr6 ::= Integer ;
 
@@ -93,6 +123,33 @@ EOr.       Expr ::= Expr1 "||" Expr ;
 coercions  Expr 6 ;
 
 separator  Expr "," ;
+
+-- Arrays Access -------------------------------------------
+
+ASimple.  ArrAccess ::= Ident "[" Expr "]" ;
+
+AField.   ArrAccess ::= FieldAccess "[" Expr "]" ;
+
+
+-- Special Expressions -------------------------------------
+
+SAcc.    SpecExp ::= FieldAccess ;
+
+SMth.    SpecExp ::= MethCall ;
+
+-- Field Access --------------------------------------------
+
+FSAcc.    FieldAccess ::= Ident "." Ident ;
+
+FAcc.     FieldAccess ::= SpecExp "." Ident ;
+
+-- Method Call ---------------------------------------------
+
+MCall.    MethCall ::= FieldAccess "(" [Expr] ")" ;
+
+-- Allocation ----------------------------------------------
+
+Alloc.    Alloc ::= "new" Ident;
 
 -- operators -----------------------------------------------
 
