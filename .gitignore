@@ -19,8 +19,11 @@ AbsLatte.hs
 DocLatte.*
 ErrM.*
 LexLatte.x
+LexLatte.hs
 Makefile
 ParLatte.y
+ParLatte.hs
 PrintLatte.hs
 SkelLatte.hs
 TestLatte.hs
+TestLatte
