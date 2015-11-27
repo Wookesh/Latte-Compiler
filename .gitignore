@@ -14,3 +14,13 @@ cabal.sandbox.config
 *.prof
 *.aux
 *.hp
+
+AbsLatte.hs
+DocLatte.*
+ErrM.*
+LexLatte.x
+Makefile
+ParLatte.y
+PrintLatte.hs
+SkelLatte.hs
+TestLatte.hs
