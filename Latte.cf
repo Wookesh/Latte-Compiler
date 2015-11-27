@@ -76,7 +76,7 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
-List.      Type ::= Type "[]" ;
+Array.      Type ::= Type "[]" ;
 
 Class.     Type ::= Ident ;
 
