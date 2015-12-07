@@ -9,7 +9,6 @@ import LatteState
 class TypeCollector a where
 	collectTypes :: MonadState LState m => a -> m ()
 
-
 instance TypeCollector Program where
 	collectTypes (Program topDefs) = do
 		forM_ topDefs collectTypes
