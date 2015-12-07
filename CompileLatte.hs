@@ -10,7 +10,7 @@ import Control.Monad.State
 type Reg = Int
 
 type VEnv = M.Map Ident Reg
-type FEnv = M.Map Ident (Type, [Arg])
+type FEnv = M.Map Ident Type
 type CEnv = M.Map Ident (Ident, [Arg], FEnv)
 
 data Store = ST (VEnv, FEnv, CEnv) deriving (Eq, Ord, Show)
@@ -39,9 +39,9 @@ clearFEnv = M.empty
 class StoreOperations s where
  	addClass :: MonadState s m => Ident -> ClassBlock -> m ()
  	addClassE :: MonadState s m => Ident -> Ident -> ClassBlock -> m ()
- 	defFun :: MonadState s m => Ident -> Type -> [Arg] -> m ()
+ 	defFun :: MonadState s m => Ident -> Type -> m ()
  	runInContext :: MonadState s m => Context -> m b -> m b
-
+ 	runForClass :: MonadState s m => Ident -> m b -> m b
 
 instance StoreOperations LState where
 	addClass ident classBlock = addClassE ident (Ident "") classBlock
@@ -53,12 +53,12 @@ instance StoreOperations LState where
 			False -> do
 				put $ S (context, ST (vEnv, fEnv, M.insert ident (base, [], clearFEnv) cEnv))
 
-	defFun ident typ args = do
+	defFun ident typ = do
 		S (context, ST (vEnv, fEnv, cEnv)) <- get
 		case M.lookup ident fEnv of
-			(Just args) -> fail $ "Redefinition of function " ++ (show ident) ++ " " ++ (show args) ++ "."
+			(Just typ1) -> fail $ "Redefinition of function " ++ (show ident) ++ "::" ++ (show typ1) ++ "."
 			Nothing -> do
-				put $ S (context, ST (vEnv, M.insert ident (typ, args) fEnv, cEnv))
+				put $ S (context, ST (vEnv, M.insert ident typ fEnv, cEnv))
 
 	runInContext context fun = do
 		S (context', store) <- get
@@ -67,6 +67,17 @@ instance StoreOperations LState where
 		S (_, store') <- get
 		put $ S (context', store')
 		return t
+
+	runForClass ident fun = do
+		S (context', ST (vEnv, fEnv, cEnv)) <- get
+		case M.lookup ident cEnv of
+			Nothing -> fail $ "Class " ++ (show ident) ++ " not found."
+			(Just (base, atrs, fEnv')) -> do
+				put $ S (context', ST (vEnv, fEnv', cEnv))
+				t <- fun
+				S (context', ST (vEnv', fEnv'', cEnv')) <- get
+				put $ S (context', ST (vEnv', fEnv, M.insert ident (base, atrs, fEnv'') cEnv'))
+				return t
 
 compileProg prog = evalStateT (runCompiler prog) $ clearState
 
@@ -78,10 +89,19 @@ class ConstexprEvaluator a where
 	evalConst :: MonadState LState m => a -> m a
 
 class TypeChecker a where
-	collectTypes ::MonadState LState m => a -> m ()
+	collectTypes :: MonadState LState m => a -> m ()
 	collectTypes a = do return ()
 	checkType :: MonadState LState m => a -> m ()
 	checkType a = do return ()
+
+getArgsTypes :: MonadState LState m => [Arg] -> m [Type]
+getArgsTypes args = do
+	types <- foldM getType [] args 
+	return $ reverse types
+
+getType types (Arg typ ident) = do	
+	return $ typ:types
+
 ---------- type checker
 instance TypeChecker Program where
 	collectTypes (Program topDefs) = do
@@ -100,9 +120,8 @@ instance TypeChecker TopDef where
 
 	collectTypes (ClassDefE ident base classBlock) = do
 		addClassE ident base classBlock
-		runInContext (C ident None) $ collectTypes classBlock
+		runForClass ident $ collectTypes classBlock
 
-		
 	checkType (TopFun funDef) = do
 		checkType funDef
 
@@ -114,14 +133,16 @@ instance TypeChecker TopDef where
 
 instance TypeChecker FunDef where
 	collectTypes (FnDef typ ident args block) = do
-		defFun ident typ args
+		types <- getArgsTypes args
+		defFun ident $ Fun typ types
+		return ()
 
-	-- checkType (FnDef typ ident args block) = do
-	-- 	checkType block
+	 --checkType (FnDef typ ident args block) = do
+	 --	checkType block
 
 instance TypeChecker ClassBlock where
 	collectTypes (ClassBlock elems) = do
-		return ()
+		forM_ elems collectTypes
 
 	checkType (ClassBlock elems) = do
 		forM_ elems checkType
@@ -129,3 +150,5 @@ instance TypeChecker ClassBlock where
 instance TypeChecker ClassElem where
 	collectTypes (ClassAtr typ ident) = do
 		return ()
+	collectTypes (ClassFun funDef) = do
+		collectTypes funDef
