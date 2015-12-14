@@ -28,7 +28,7 @@ ClassFun.	ClassElem ::= FunDef ;
 
 ClassAtr.	ClassElem ::= Type Ident ;
 
-separator nonempty ClassElem "" ;
+separator	 ClassElem "" ;
 
 -- statements ----------------------------------------------
 
@@ -96,6 +96,8 @@ EMth.      Expr6 ::= MethCall ;
 
 EObj.      Expr6 ::= Alloc ;
 
+ENArr.     Expr6 ::= NewArr;
+
 ELitInt.   Expr6 ::= Integer ;
 
 ELitTrue.  Expr6 ::= "true" ;
@@ -150,6 +152,10 @@ MCall.    MethCall ::= FieldAccess "(" [Expr] ")" ;
 -- Allocation ----------------------------------------------
 
 Alloc.    Alloc ::= "new" Ident;
+
+------------------------------------------------------------
+
+NewArr.   NewArr ::= "new" Type "[" Expr "]";
 
 -- operators -----------------------------------------------
 
