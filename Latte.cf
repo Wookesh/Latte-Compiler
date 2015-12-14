@@ -130,7 +130,7 @@ separator  Expr "," ;
 
 ASimple.  ArrAccess ::= Ident "[" Expr "]" ;
 
-AField.   ArrAccess ::= FieldAccess "[" Expr "]" ;
+AField.   ArrAccess ::= SpecExp "[" Expr "]" ;
 
 
 -- Special Expressions -------------------------------------
@@ -138,6 +138,8 @@ AField.   ArrAccess ::= FieldAccess "[" Expr "]" ;
 SAcc.    SpecExp ::= FieldAccess ;
 
 SMth.    SpecExp ::= MethCall ;
+
+SArr.    SpecExp ::= ArrAccess ;
 
 -- Field Access --------------------------------------------
 
