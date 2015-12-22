@@ -43,8 +43,8 @@ instance TypeCollector ClassElem where
 
 
 getArgsTypes args = do
-	types <- foldM getType [] args 
+	types <- foldM getArgType [] args 
 	return $ reverse types
 
-getType types (Arg typ ident) = do	
+getArgType types (Arg typ ident) = do	
 	return $ typ:types
