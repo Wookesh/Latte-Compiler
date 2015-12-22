@@ -12,7 +12,7 @@ import SkelLatte
 import PrintLatte
 import AbsLatte
 import CompileLatte
-
+import TypeCollector
 
 
 
