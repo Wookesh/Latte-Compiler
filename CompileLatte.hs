@@ -103,6 +103,12 @@ instance TypeChecker Stmt where
 		typ <- getFunRetType ident
 		isType Void typ VRet
 
+	checkType (Cond ELitTrue stmt) = do
+		checkType stmt
+
+	checkType (Cond ELitFalse stmt) = do
+		return ()
+
 	checkType (Cond expr stmt) = do
 		typ <- getType expr
 		isType Bool typ expr
@@ -140,7 +146,6 @@ instance TypeChecker Expr where
 		types1 <- forM exprs checkAndGetType
 		(Fun typ types2) <- getFunType ident
 		return ()
-
 	
 	checkType (EString str) = do
 		return ()
@@ -267,7 +272,7 @@ instance TypeChecker NewArr where
 isType :: (MonadState s m, Show a) => Type -> Type -> a -> m ()
 isType expected actual struct = do
 	if expected /= actual then
-		fail $ "In expression " ++ (show struct) ++ " expected type " ++ (show expected) ++ "mismaches with actual type " ++ (show actual) ++ "."
+		fail $ "In expression (" ++ (show struct) ++ ") expected type : " ++ (show expected) ++ " mismaches with actual type : " ++ (show actual) ++ "."
 	else do
 		return ()	
 

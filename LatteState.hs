@@ -95,6 +95,13 @@ instance StoreOperations LState where
 		put $ S (context', store')
 		return t
 
+	getFunFromContext = do
+		S (context, store) <- get
+		case getFunIdent context of
+			Just ident -> return ident
+			Nothing -> fail $ "not in function"
+
+
 	runForClass ident fun = do
 		S (context, ST (vEnv, fEnv, cEnv)) <- get
 		case M.lookup ident cEnv of
@@ -128,3 +135,7 @@ instance StoreOperations LState where
 
 enterContext (C ident None) context = C ident context
 enterContext _ context = context
+
+getFunIdent (F ident) = Just ident
+getFunIdent (C ident context) = getFunIdent context
+getFunIdent None = Nothing
