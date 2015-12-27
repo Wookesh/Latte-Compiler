@@ -13,6 +13,7 @@ import PrintLatte
 import AbsLatte
 import CompileLatte
 import TypeCollector
+import ConstEval
 
 
 
@@ -27,10 +28,10 @@ type Verbosity = Int
 putStrV :: Verbosity -> String -> IO ()
 putStrV v s = if v > 1 then putStrLn s else return ()
 
-runFile :: (Print a, Show a, TypeChecker a, TypeCollector a) => Verbosity -> ParseFun a -> FilePath -> IO ()
+runFile :: (Print a, Show a, TypeChecker a, TypeCollector a, ConstexprEvaluator a) => Verbosity -> ParseFun a -> FilePath -> IO ()
 runFile v p f = putStrLn f >> readFile f >>= run v p
 
-run :: (Print a, Show a, TypeChecker a, TypeCollector a) => Verbosity -> ParseFun a -> String -> IO ()
+run :: (Print a, Show a, TypeChecker a, TypeCollector a, ConstexprEvaluator a) => Verbosity -> ParseFun a -> String -> IO ()
 run v p s = let ts = myLLexer s in case p ts of
            Bad s    -> do putStrLn "\nParse              Failed...\n"
                           putStrV v "Tokens:"

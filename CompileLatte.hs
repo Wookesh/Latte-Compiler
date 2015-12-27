@@ -6,6 +6,7 @@ import AbsLatte
 import Control.Monad.State
 import LatteState
 import TypeCollector
+import ConstEval
 
 
 compileProg prog = evalStateT (runCompiler prog) $ clearState
@@ -13,9 +14,7 @@ compileProg prog = evalStateT (runCompiler prog) $ clearState
 runCompiler prog = do
 	collectTypes prog
 	checkType prog
-
-class ConstexprEvaluator a where
-	evalConst :: MonadState LState m => a -> m a
+	prog <- evalConst prog
 
 class TypeChecker a where
 	checkType :: MonadState LState m => a -> m ()
