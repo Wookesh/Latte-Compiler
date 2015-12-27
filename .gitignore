@@ -16,6 +16,8 @@ cabal.sandbox.config
 *.hp
 *.bak
 
+latte
+
 AbsLatte.hs
 DocLatte.*
 ErrM.*

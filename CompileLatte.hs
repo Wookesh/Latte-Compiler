@@ -23,12 +23,18 @@ class TypeChecker a where
 	declItem _ _ = do return ()
 	getType :: MonadState LState m => a -> m Type
 	getType _ = do return Void
+
 	checkAndGetType :: MonadState LState m => a -> m Type
 	checkAndGetType expr = do
 		checkType expr
 		typ <- getType expr
 		return typ
-		
+	
+	checkReturn :: MonadState LState m => Type -> a -> m ()
+	checkReturn _ _ = return ()
+
+	checkLastRet :: MonadState LState m => Type -> Bool -> a -> m Bool
+	checkLastRet _ _ _ = return False
 
 ---------- type checker
 instance TypeChecker Program where
@@ -51,11 +57,13 @@ instance TypeChecker TopDef where
 instance TypeChecker FunDef where
 	 checkType (FnDef typ ident args block) = do
 	 	f <- runForFun ident $ checkType block
+	 	checkReturn typ block
 	 	return ()
 
 instance TypeChecker ClassBlock where
 	checkType (ClassBlock elems) = do
 		forM_ elems checkType
+		
 
 instance TypeChecker ClassElem where
 	checkType (ClassFun funDef) = do
@@ -67,6 +75,15 @@ instance TypeChecker ClassElem where
 instance TypeChecker Block where
 	checkType (Block stmts) = do
 		forM_ stmts checkType
+
+	checkReturn typ e@(Block stmts) = do
+		forM stmts $ checkReturn typ
+		lastIsRet <- foldM (checkLastRet typ) False stmts
+		case lastIsRet of
+			True -> return ()
+			False -> if typ == Void then return () else fail $ "No return at the end of " ++ (show e)
+
+
 
 instance TypeChecker Stmt where
 	checkType (Empty) = do
@@ -127,6 +144,21 @@ instance TypeChecker Stmt where
 
 	checkType (SExp expr) = do
 		checkType expr
+
+	checkLastRet typ _ (Cond ELitTrue stmt) = do
+		checkReturn typ stmt
+		return True
+
+	checkLastRet typ _ (CondElse expr stmt1 stmt2) = do
+		checkReturn typ stmt1
+		checkReturn typ stmt2
+		return True
+
+	checkLastRet typ _ VRet = return True
+	checkLastRet typ _ (Ret expr) = return True
+
+	checkLastRet _ _ _ = return False
+
 
 instance TypeChecker Item where
 	checkType (NoInit ident) = do return ()
