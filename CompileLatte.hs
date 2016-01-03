@@ -7,14 +7,23 @@ import Control.Monad.State
 import LatteState
 import TypeCollector
 import ConstEval
+import Compile
 
+--compileProg :: (TypeChecker a, TypeCollector a, ConstexprEvaluator a) => a -> IO ()
+compileProg prog = do
+	state <- execStateT (collectTypes prog) $ clearState
+	state <- execStateT (checkType prog) $ state
+	(prog, state) <- runStateT (evalConst prog) $ state
+	runStateT (genProg prog) state
+	return ()
 
-compileProg prog = evalStateT (runCompiler prog) $ clearState
-
-runCompiler prog = do
-	collectTypes prog
-	checkType prog
-	prog <- evalConst prog
+--runCompiler prog = do
+--	collectTypes prog
+--	checkType prog
+--	prog <- evalConst prog
+--	return ()
+--	--translated <- evalStateT (genCode prog) $ clearCompileEnv
+--	--return translated
 
 class TypeChecker a where
 	checkType :: MonadState LState m => a -> m ()

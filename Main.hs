@@ -28,19 +28,18 @@ type Verbosity = Int
 putStrV :: Verbosity -> String -> IO ()
 putStrV v s = if v > 1 then putStrLn s else return ()
 
-runFile :: (Print a, Show a, TypeChecker a, TypeCollector a, ConstexprEvaluator a) => Verbosity -> ParseFun a -> FilePath -> IO ()
-runFile v p f = putStrLn f >> readFile f >>= run v p
+runFile :: Verbosity -> ParseFun Program -> FilePath -> IO ()
+runFile v p f = readFile f >>= run v p
 
-run :: (Print a, Show a, TypeChecker a, TypeCollector a, ConstexprEvaluator a) => Verbosity -> ParseFun a -> String -> IO ()
+run :: Verbosity -> ParseFun Program -> String -> IO ()
 run v p s = let ts = myLLexer s in case p ts of
            Bad s    -> do putStrLn "\nParse              Failed...\n"
                           putStrV v "Tokens:"
                           putStrV v $ show ts
                           putStrLn s
                           exitFailure
-           Ok  tree -> do putStrLn "\nParse Successful!"
+           Ok  tree -> do 
                           ret <- compileProg tree
-
                           exitSuccess
 
 

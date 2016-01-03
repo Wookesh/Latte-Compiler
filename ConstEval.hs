@@ -4,6 +4,7 @@ module ConstEval where
 import AbsLatte
 import Control.Monad.State
 import LatteState
+import Common
 
 class ConstexprEvaluator a where
 	evalConst :: MonadState LState m => a -> m a
@@ -68,16 +69,37 @@ instance ConstexprEvaluator Stmt where
 		newExpr <- evalConst expr
 		return $ Ret newExpr
 
+	evalConst (Cond ELitFalse stmt) = do
+		return $ BStmt $ Block []
+
+	evalConst (Cond ELitTrue stmt) = do
+		return stmt
+
 	evalConst (Cond expr stmt) = do
 		newExpr <- evalConst expr
-		newStmt <- evalConst stmt
-		return $ Cond newExpr newStmt
+		case newExpr of
+			ELitFalse -> return $ BStmt $ Block []
+			ELitTrue -> do
+				newStmt <- evalConst stmt
+				return newStmt
+			_ -> do
+				newStmt <- evalConst stmt
+				return $ Cond newExpr newStmt
+
 
 	evalConst (CondElse expr stmt1 stmt2) = do
 		newExpr <- evalConst expr
-		newStmt1 <- evalConst stmt1
-		newStmt2 <- evalConst stmt2
-		return $ CondElse newExpr newStmt1 newStmt2
+		case newExpr of 
+			ELitFalse -> do 
+				newStmt2 <- evalConst stmt2
+				return newStmt2
+			ELitTrue -> do
+				newStmt1 <- evalConst stmt1
+				return newStmt1
+			_ -> do
+				newStmt1 <- evalConst stmt1
+				newStmt2 <- evalConst stmt2
+				return $ CondElse newExpr newStmt1 newStmt2
 
 	evalConst (While expr stmt) = do
 		newExpr <- evalConst expr
@@ -120,6 +142,7 @@ instance ConstexprEvaluator Expr where
 					GE -> if n1 >= n2 then return ELitTrue else return ELitFalse
 					EQU -> if n1 == n2 then return ELitTrue else return ELitFalse
 					NE -> if n1 /= n2 then return ELitTrue else return ELitFalse
+			(_, ELitInt n2) -> return $ ERel (ELitInt n2) (opposite op) newExpr1
 			(_, _) -> return $ ERel newExpr1 op newExpr2
 
 	evalConst (EMul expr1 op expr2) = do
@@ -150,6 +173,10 @@ instance ConstexprEvaluator Expr where
 		newExpr2 <- evalConst expr2
 		case (newExpr1, newExpr2) of
 			(ELitTrue, ELitTrue) -> return ELitTrue
+			(ELitFalse, _) -> return ELitFalse
+			(_, ELitFalse) -> return ELitFalse
+			(ELitTrue, _) -> return newExpr2
+			(_, ELitTrue) -> return newExpr1
 			(_, _) -> return $ EOr newExpr1 newExpr2
 
 	evalConst (EOr expr1 expr2) = do
@@ -158,6 +185,9 @@ instance ConstexprEvaluator Expr where
 		case (newExpr1, newExpr2) of
 			(_, ELitTrue) -> return ELitTrue
 			(ELitTrue, _) -> return ELitTrue
+			(ELitFalse, ELitFalse) -> return ELitFalse
+			(_, ELitFalse) -> return newExpr1
+			(ELitFalse, _) -> return newExpr2
 			(_, _) -> return $ EOr newExpr1 newExpr2
 
 	evalConst expr = return expr
