@@ -2,9 +2,12 @@
 module Main where
 
 
-import System.IO ( stdin, hGetContents )
+import System.IO ( stdin, hGetContents, hPutStrLn, stderr )
 import System.Environment ( getArgs, getProgName )
 import System.Exit ( exitFailure, exitSuccess )
+import System.FilePath.Posix
+import System.Exit
+import System.Process
 
 import LexLatte
 import ParLatte
@@ -29,18 +32,32 @@ putStrV :: Verbosity -> String -> IO ()
 putStrV v s = if v > 1 then putStrLn s else return ()
 
 runFile :: Verbosity -> ParseFun Program -> FilePath -> IO ()
-runFile v p f = readFile f >>= run v p
+runFile v p f = readFile f >>= run v p f
 
-run :: Verbosity -> ParseFun Program -> String -> IO ()
-run v p s = let ts = myLLexer s in case p ts of
+run :: Verbosity -> ParseFun Program -> FilePath -> String -> IO ()
+run v p f s = let ts = myLLexer s in case p ts of
            Bad s    -> do putStrLn "\nParse              Failed...\n"
                           putStrV v "Tokens:"
                           putStrV v $ show ts
                           putStrLn s
                           exitFailure
            Ok  tree -> do 
-                          ret <- compileProg tree
-                          exitSuccess
+                          case compileProg tree of
+                            Bad s -> do 
+                              hPutStrLn stderr $ "ERROR"
+                              putStrLn s
+                              exitFailure
+                            Ok prog -> do
+                              hPutStrLn stderr $ "OK"
+                              writeFile (replaceExtension f "s") prog
+                              (exitCode, sout, serr) <- readProcessWithExitCode "gcc" ["-o",(dropExtension f),(replaceExtension f "s")] ""
+                              case exitCode of
+                                ExitSuccess -> exitSuccess
+                                _ -> do
+                                  putStrLn sout
+                                  putStrLn serr
+                                  exitFailure
+
 
 
 showTree :: (Show a, Print a) => Int -> a -> IO ()
@@ -54,7 +71,6 @@ usage = do
   putStrLn $ unlines
     [ "usage: Call with one of the following argument combinations:"
     , "  --help          Display this help message."
-    , "  (no arguments)  Parse stdin verbosely."
     , "  (files)         Parse content of files verbosely."
     , "  -s (files)      Silent mode. Parse content of files silently."
     ]
@@ -65,7 +81,6 @@ main = do
   args <- getArgs
   case args of
     ["--help"] -> usage
-    [] -> hGetContents stdin >>= run 2 pProgram
     "-s":fs -> mapM_ (runFile 0 pProgram) fs
     fs -> mapM_ (runFile 2 pProgram) fs
 

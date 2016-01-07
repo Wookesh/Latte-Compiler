@@ -8,22 +8,19 @@ import LatteState
 import TypeCollector
 import ConstEval
 import Compile
+import Common
+import Predefined
+import ErrM
 
---compileProg :: (TypeChecker a, TypeCollector a, ConstexprEvaluator a) => a -> IO ()
-compileProg prog = do
-	state <- execStateT (collectTypes prog) $ clearState
-	state <- execStateT (checkType prog) $ state
-	(prog, state) <- runStateT (evalConst prog) $ state
-	runStateT (genProg prog) state
-	return ()
-
---runCompiler prog = do
---	collectTypes prog
---	checkType prog
---	prog <- evalConst prog
---	return ()
---	--translated <- evalStateT (genCode prog) $ clearCompileEnv
---	--return translated
+compileProg :: Program -> Err String
+compileProg prog' = do
+	let prog = addPredefined prog' in do
+		state <- execStateT (collectTypes prog) $ clearState
+		state <- execStateT (checkType prog) $ state
+		(prog, state) <- runStateT (evalConst prog) $ state
+		(prog, state) <- runStateT (genProg' prog) state
+		--putStrLn (show prog)
+		return $ show prog
 
 class TypeChecker a where
 	checkType :: MonadState LState m => a -> m ()
@@ -63,10 +60,22 @@ instance TypeChecker TopDef where
 		return ()
 
 instance TypeChecker FunDef where
-	 checkType (FnDef typ ident args block) = do
-	 	f <- runForFun ident $ checkType block
-	 	checkReturn typ block
-	 	return ()
+	 checkType f@(FnDef typ ident args block) = do
+	 	runForFun ident $ go f
+	 	where
+	 		go f@(FnDef typ ident args block) = do 
+	 			forM_ args declParam
+	 			_ <- shouldCall ident $ checkType block
+	 			shouldCall ident $ checkReturn typ block
+	 			return ()
+	 		
+	 		declParam (Arg typ ident) = do
+	 			declNoShift ident typ
+	 		shouldCall (Ident ident) fun = do
+	 			if isPredefined ident then
+	 				return ()
+	 			else do
+	 				fun
 
 instance TypeChecker ClassBlock where
 	checkType (ClassBlock elems) = do
@@ -82,7 +91,7 @@ instance TypeChecker ClassElem where
 
 instance TypeChecker Block where
 	checkType (Block stmts) = do
-		forM_ stmts checkType
+		runForBlock $ forM_ stmts checkType
 
 	checkReturn typ e@(Block stmts) = do
 		forM stmts $ checkReturn typ
@@ -98,14 +107,14 @@ instance TypeChecker Stmt where
 		return ()
 
 	checkType (BStmt block) = do
-		local $ checkType block
+		checkType block
 
 	checkType (Decl typ items) = do
 		forM_ items $ declItem typ 
 		forM_ items $ checkType
 
 	checkType e@(Ass ident expr) = do
-		typ1 <- getType expr
+		typ1 <- checkAndGetType expr
 		typ2 <- getVarType ident
 		isType typ2 typ1 e
 
@@ -137,6 +146,7 @@ instance TypeChecker Stmt where
 	checkType (Cond expr stmt) = do
 		typ <- getType expr
 		isType Bool typ expr
+		checkType expr
 		checkType stmt
 
 	checkType (CondElse expr stmt1 stmt2) = do
@@ -171,21 +181,33 @@ instance TypeChecker Stmt where
 instance TypeChecker Item where
 	checkType (NoInit ident) = do return ()
 	checkType e@(Init ident expr) = do
+		checkType expr
 		typ1 <- getVarType ident
 		typ2 <- getType expr
 		isType typ1 typ2 e
 
 	declItem typ (NoInit ident) = do
-		decl ident typ
+		declNoShift ident typ
 	declItem typ (Init ident _) = do
-		decl ident typ
+		declNoShift ident typ
+
+instance TypeChecker Arg where
+	checkType arg@(Arg typ ident) = do 
+		declItem typ arg
+
+	declItem _ (Arg typ ident) = do
+		declNoShift ident typ
 
 instance TypeChecker Expr where
 
 	checkType (EApp ident exprs) = do
 		types1 <- forM exprs checkAndGetType
 		(Fun typ types2) <- getFunType ident
-		return ()
+		if (length types1) /= (length types2) then
+			fail $ "Wrong number of parameters in " ++ (show ident) ++ ". Should be " ++ (show $ length types2) ++ " is " ++ (show $ length types1) ++ "\n"
+		else do
+			forM (zip types1 (zip types2 exprs)) (\(t1,(t2,e)) -> do isType t2 t1 e)
+			return ()
 	
 	checkType (EString str) = do
 		return ()
@@ -207,8 +229,11 @@ instance TypeChecker Expr where
 	checkType (EAdd expr1 op expr2) = do
 		typ1 <- checkAndGetType expr1
 		typ2 <- checkAndGetType expr2
-		isType Int typ1 expr1
-		isType Int typ2 expr2
+		if and [typ1 == Str, op == Plus] then do
+			isType Str typ2 expr2
+		else do
+			isType Int typ1 expr1
+			isType Int typ2 expr2
 
 	checkType (ERel expr1 op expr2) = do
 		typ1 <- checkAndGetType expr1
@@ -237,18 +262,6 @@ instance TypeChecker Expr where
 	getType (EArr arrAccess) = do
 		typ <- getType arrAccess
 		return typ
-
-	--getType (EFld fieldAccess) = do
-	--	typ <- getType fieldAccess
-	--	return typ
-
-	--getType (EMth methCall) = do
-	--	typ <- getType methCall
-	--	return typ
-
-	--getType (EObj alloc) = do
-	--	typ <- getType alloc
-	--	return typ
 
 	getType (ENArr newArr) = do
 		typ <- getType newArr
@@ -280,7 +293,10 @@ instance TypeChecker Expr where
 		return Int
 
 	getType (EAdd expr1 op expr2) = do
-		return Int
+		if op == Plus then do
+			typ <- getType expr1
+			return typ
+		else return Int
 
 	getType (ERel expr1 op expr2) = do
 		return Bool
@@ -298,12 +314,6 @@ instance TypeChecker ArrAccess where
 			(Array typ) -> return typ
 			_ -> fail $ (show ident) ++ "is not an array."
 
-	--getType (AField specExp expr) = do
-	--	typ <- getType specExp
-	--	case typ of
-	--		(Array typ) -> return typ
-	--		_ -> fail $ (show specExp) ++ "is not an array."
-
 instance TypeChecker NewArr where
 	getType (NewArr typ expr) = do
 		return $ Array typ
@@ -315,9 +325,3 @@ isType expected actual struct = do
 		fail $ "In expression (" ++ (show struct) ++ ") expected type : " ++ (show expected) ++ " mismaches with actual type : " ++ (show actual) ++ "."
 	else do
 		return ()	
-
-
---wrongType :: (MonadState s m, Show a) => Type -> Type -> a -> m ()
---wrongType expected actual expr = do
---	fail $ "In expression " ++ (show expr) ++ " expected type " ++ (show expected) ++ "mismaches with actual type " ++ (show actual) ++ "."
---	

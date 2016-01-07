@@ -122,7 +122,8 @@ instance ConstexprEvaluator Expr where
 		case newExpr of
 			ELitTrue -> return ELitFalse
 			ELitFalse -> return ELitTrue
-			_ -> return $ Neg newExpr
+			Not expr -> return expr
+			_ -> return $ Not newExpr
 
 	evalConst (Neg expr) = do
 		newExpr <- evalConst expr
@@ -177,7 +178,7 @@ instance ConstexprEvaluator Expr where
 			(_, ELitFalse) -> return ELitFalse
 			(ELitTrue, _) -> return newExpr2
 			(_, ELitTrue) -> return newExpr1
-			(_, _) -> return $ EOr newExpr1 newExpr2
+			(_, _) -> return $ EAnd newExpr1 newExpr2
 
 	evalConst (EOr expr1 expr2) = do
 		newExpr1 <- evalConst expr1

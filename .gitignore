@@ -23,7 +23,6 @@ DocLatte.*
 ErrM.*
 LexLatte.x
 LexLatte.hs
-Makefile
 ParLatte.y
 ParLatte.hs
 PrintLatte.hs

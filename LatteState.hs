@@ -1,35 +1,44 @@
 module LatteState where
 
 import Data.Map as M
+import Data.Tuple as T
 import Control.Monad.State
 import AbsLatte
 import Common
 
 
 data Object = 
-	  Reg String
+	  Reg {r64 :: String, r32 :: String, r8 :: String}
 	| Mem String Integer
-	| Con Integer deriving (Ord, Eq)
-data VarInfo = VarInfo { vType :: Type, shift :: Integer } deriving (Show, Eq, Ord)
-data FunInfo = FunInfo { fType :: Type, nextVarShift :: Integer, variables :: VEnv} | FNone deriving (Eq, Ord, Show)
+	| Con Integer
+	| ConS String deriving (Ord, Eq)
+data VarInfo = VarInfo { vType :: Type, shift :: Integer, location :: Integer } deriving (Show, Eq, Ord)
+data FunInfo = FunInfo { fType :: Type, nextVarShift :: Integer, totalShift :: Integer, variables :: [VEnv]} | FNone deriving (Eq, Ord, Show)
 type VEnv = M.Map Ident VarInfo
 type FEnv = M.Map Ident FunInfo
 type CEnv = M.Map Ident (Ident, [Arg], FEnv)
-type RegList = ([Object], [Object])
+data PartialResults = PR { inUse :: M.Map Integer (Object, Type), nextFree :: Integer} deriving (Eq, Ord)
+data ARegister = R { reg :: Object, rType :: Type} deriving (Eq, Ord)
+data RegList = Regs [ARegister] deriving (Eq, Ord)
 
-data Store = ST (VEnv, FEnv, CEnv) deriving (Eq, Ord, Show)
+data Store = ST (FEnv, CEnv) deriving (Eq, Ord, Show)
 
 data Context = F Ident| C Ident Context | None deriving (Eq, Ord, Show)
 
-data LState = S (Context, Store, FunInfo, Integer, RegList)
+data StringData = SD {allString :: M.Map String String, sId :: Integer}
+
+data LState = S (Context, Store, FunInfo, Integer, RegList, PartialResults, StringData)
 
 ---------- Store
 
+clearPartialResults :: PartialResults
+clearPartialResults = PR M.empty 1
+
 clearState :: LState
-clearState = S (None, clearStore, FNone, 1, clearRegList)
+clearState = S (None, clearStore, FNone, 1, clearRegList, clearPartialResults, SD (M.empty) 1)
 
 clearStore :: Store
-clearStore = ST (clearVEnv, clearFEnv, clearCEnv)
+clearStore = ST (clearFEnv, clearCEnv)
 
 clearCEnv :: CEnv
 clearCEnv = M.empty
@@ -40,105 +49,173 @@ clearVEnv = M.empty
 clearFEnv :: FEnv
 clearFEnv = M.empty
 
-clearRegList = ((Reg "eax"):(Reg "edx"):(Reg "ebx"):(Reg "ecx"):(Reg "esi"):(Reg "edi"):(Reg "r8d"):(Reg "r9d"):(Reg "r10d"):(Reg "r11d"):(Reg "r12d"):(Reg "r13d"):(Reg "r14d"):(Reg "r15d"):[],
-				(Reg "rax"):(Reg "rdx"):(Reg "rbx"):(Reg "rcx"):(Reg "rsi"):(Reg "rdi"):(Reg "r8"):(Reg "r9"):(Reg "r10"):(Reg "r11"):(Reg "r12"):(Reg "r13"):(Reg "r14"):(Reg "r15"):[])
+emptyReg = Reg "" "" ""
+rbpReg = Reg "rbp" "ebp" ""
+rspReg = Reg "rsp" "esp" ""
+raxReg = Reg "rax" "eax" "al"
+rbxReg = Reg "rbx" "ebx" "bl"
+rcxReg = Reg "rcx" "ecx" "cl"
+rdxReg = Reg "rdx" "edx" "dl"
+rsiReg = Reg "rsi" "esi" "sil"
+rdiReg = Reg "rdi" "edi" "dil"
+r8Reg = Reg "r8" "r8d" "r8b"
+r9Reg = Reg "r9" "r9d" "r9b"
+r10Reg = Reg "r10" "r10d" "r10b"
+r11Reg = Reg "r11" "r11d" "r11b"
+r12Reg = Reg "r12" "r12d" "r12b"
+r13Reg = Reg "r13" "r13d" "r13b"
+r14Reg = Reg "r14" "r14d" "r14b"
+r15Reg = Reg "r15" "r15d" "r15b"
+
+toSave = [rbxReg, r12Reg, r13Reg, r14Reg, r15Reg]
+
+regCallOrder = [rdiReg, rsiReg, rdxReg, rcxReg, r8Reg, r9Reg]
+
+clearRegList = Regs [R rbxReg Void, R rcxReg Void,	R rdxReg Void,	R rsiReg Void,
+					 R rdiReg Void, R r8Reg Void,	R r9Reg Void,	R r10Reg Void,
+					 R r11Reg Void, R r12Reg Void,	R r13Reg Void,	R r14Reg Void,
+					 R r15Reg Void]
 
 class StoreOperations s where
  	addClass :: MonadState s m => Ident -> ClassBlock -> m ()
  	addClassE :: MonadState s m => Ident -> Ident -> ClassBlock -> m ()
  	defFun :: MonadState s m => Ident -> Type -> m ()
  	decl :: MonadState s m => Ident -> Type -> m ()
+ 	declNoShift :: MonadState s m => Ident -> Type -> m ()
+ 	declAt :: MonadState s m => Integer -> Ident -> Type -> m ()
  	getVarType :: MonadState s m => Ident -> m Type
  	getFunRetType :: MonadState s m => Ident -> m Type
  	getFunType :: MonadState s m => Ident -> m Type
  	runInContext :: MonadState s m => Context -> m b -> m b
  	runForClass :: MonadState s m => Ident -> m b -> m b
+ 	runForBlock :: MonadState s m => m b -> m b
  	runForFun :: MonadState s m => Ident -> m b -> m b
  	local :: MonadState s m => m b -> m b
  	getFunFromContext :: MonadState s m => m Ident
  	freeReg :: MonadState s m => Object -> m ()
- 	getFreeReg32 :: MonadState s m => m Object
- 	getFreeReg :: MonadState s m => m Object
+ 	getFreeReg :: MonadState s m => Type -> m Object
+ 	getFreeSafeRegs :: MonadState s m => m [Object]
+ 	getFreeReg' :: MonadState s m => Type -> [ARegister] -> m (Object, [ARegister])
+ 	getUsedRegs :: MonadState s m => m [ARegister]
+ 	getResultLoc :: MonadState s m => Integer -> m (Object, Type)
+	setResultLoc :: MonadState s m => Integer -> (Object, Type) -> m ()
+	newResultLoc :: MonadState s m => (Object, Type) -> m Integer
+	getTotalShift :: MonadState s m => m Integer
+	addjustShift :: MonadState s m => m ()
+	getStrDefs :: MonadState s m => m [(String, String)]
+	addString :: MonadState s m => String -> m ()
+	getStringId :: MonadState s m => String -> m String
+	getRegToSalvage :: MonadState s m => Type -> m (Object, Type)
+	restoreReg :: MonadState s m =>  Type -> Object -> m ()
+	addTmpVar :: MonadState s m => Integer -> m Integer
+	delTmpVar :: MonadState s m => Integer -> m ()
+	getCurrentShift :: MonadState s m => m Integer
+	setCurrentShift :: MonadState s m => Integer -> m ()
+	getUsedRegsNonSafe :: MonadState s m => m [ARegister]
 
 instance StoreOperations LState where
 	addClass ident classBlock = addClassE ident (Ident "") classBlock
 
 	addClassE ident base classBlock = do
-		S (context, ST (vEnv, fEnv, cEnv), funInfo, lastLabel, regs) <- get
+		S (context, ST (fEnv, cEnv), funInfo, lastLabel, regs, pResults, cStr) <- get
 		case M.member ident cEnv of
 			True -> fail $ "Redefinition of class " ++ (show ident) ++ "."
 			False -> do
-				put $ S (context, ST (vEnv, fEnv, M.insert ident (base, [], clearFEnv) cEnv), funInfo, lastLabel, regs)
+				put $ S (context, ST (fEnv, M.insert ident (base, [], clearFEnv) cEnv), funInfo, lastLabel, regs, pResults, cStr)
 
 	defFun ident typ = do
-		S (context, ST (vEnv, fEnv, cEnv), funInfo, lastLabel, regs) <- get
+		S (context, ST (fEnv, cEnv), funInfo, lastLabel, regs, pResults, cStr) <- get
 		case M.lookup ident fEnv of
 			(Just typ1) -> fail $ "Redefinition of function " ++ (show ident) ++ "::" ++ (show typ1) ++ "."
 			Nothing -> do
-				put $ S (context, ST (vEnv, M.insert ident (FunInfo typ (-4) clearVEnv) fEnv, cEnv), funInfo, lastLabel, regs)
+				put $ S (context, ST (M.insert ident (FunInfo typ 0 0 [clearVEnv]) fEnv, cEnv), funInfo, lastLabel, regs, pResults, cStr)
 
+	-- modifies local shift
 	decl ident typ = do
-		S (context, ST (vEnv, fEnv, cEnv), (FunInfo fTyp totalShift vars), lastLabel, regs) <- get
-		put $ S (context, ST (vEnv, fEnv, cEnv), (FunInfo fTyp (totalShift - (typeSize typ)) (M.insert ident (VarInfo typ totalShift) vars)), lastLabel, regs)
+		S (context, store, (FunInfo fTyp shift maxShift (vars:vEnvs)), lastLabel, regs, pResults, cStr) <- get
+		case M.lookup ident vars of
+			Nothing -> do put $ S (context, store, (FunInfo fTyp (shift - (typeSize typ)) (min maxShift (shift - (typeSize typ))) ((M.insert ident (VarInfo typ (shift - (typeSize typ)) 0) vars):vEnvs)), lastLabel, regs, pResults, cStr)
+			_ -> fail $ "redefinition of " ++ (show ident) ++ "\n"
+
+	-- no shift modification, usefull outsize Compile.hs
+	declAt pos ident typ = do
+		S (context, store, (FunInfo fTyp shift maxShift (vars:vEnvs)), lastLabel, regs, pResults, cStr) <- get
+		case M.lookup ident vars of
+			Nothing -> do put $ S (context, store, (FunInfo fTyp shift maxShift  ((M.insert ident (VarInfo typ pos 0) vars):vEnvs)), lastLabel, regs, pResults, cStr)
+			(Just var) -> fail $ "redefinition of " ++ (show ident) ++ " defined as " ++ (show var) ++  "\n"
+
+	declNoShift ident typ = declAt 0 ident typ
 
 	getVarType ident = do
-		S (context, ST (vEnv, fEnv, cEnv), funInfo, lastLabel, regs) <- get
-		case M.lookup ident (variables funInfo) of
-			(Just var) -> do return $ vType var
-			Nothing -> fail $ "Variable " ++ (show ident) ++ "is not defined."
+		S (context, store, funInfo, lastLabel, regs, pResults, cStr) <- get
+		varType <- getVarType' ident $ variables funInfo
+		return varType
+		where
+			getVarType' _ [] = fail $ "Variable " ++ (show ident) ++ "is not defined."
+			getVarType' ident (vEnv:vx) = do
+				case M.lookup ident vEnv of
+					(Just var) -> return $ vType var
+					Nothing -> do
+						fromLower <- getVarType' ident vx
+						return fromLower
 
 	getFunRetType ident = do
-		S (context, ST (vEnv, fEnv, cEnv), funInfo, lastLabel, regs) <- get
+		S (context, ST (fEnv, cEnv), funInfo, lastLabel, regs, pResults, cStr) <- get
 		case M.lookup ident fEnv of
 			(Just funInfo) -> 
 				let (Fun typ types) = fType funInfo in return $ typ
 			Nothing -> fail $ "Variable " ++ (show ident) ++ "is not defined."
 
 	getFunType ident = do
-		S (context, ST (vEnv, fEnv, cEnv), funInfo, lastLabel, regs) <- get
+		S (context, ST (fEnv, cEnv), funInfo, lastLabel, regs, pResults, cStr) <- get
 		case M.lookup ident fEnv of
 			(Just funInfo) -> do return $ fType funInfo
 			Nothing -> fail $ "Variable " ++ (show ident) ++ "is not defined."
 
-
-
 	runInContext context fun = do
-		S (context', store, funInfo, lastLabel, regs) <- get
-		put $ S (context, store, funInfo, lastLabel, regs)
+		S (context', store, funInfo, lastLabel, regs, pResults, cStr) <- get
+		put $ S (context, store, funInfo, lastLabel, regs, pResults, cStr)
 		t <- fun 
-		S (_, store', funInfo, lastLabel, regs) <- get
-		put $ S (context', store', funInfo, lastLabel, regs)
+		S (_, store', funInfo, lastLabel, regs, pResults, cStr) <- get
+		put $ S (context', store', funInfo, lastLabel, regs, pResults, cStr)
 		return t
 
 	getFunFromContext = do
-		S (context, store, funInfo, lastLabel, regs) <- get
+		S (context, store, funInfo, lastLabel, regs, pResults, cStr) <- get
 		case getFunIdent context of
 			Just ident -> return ident
 			Nothing -> fail $ "not in function"
 
-
 	runForClass ident fun = do
-		S (context, ST (vEnv, fEnv, cEnv), fNone, lastLabel, regs) <- get
+		S (context, ST (fEnv, cEnv), fNone, lastLabel, regs, pResults, cStr) <- get
 		case M.lookup ident cEnv of
 			Nothing -> fail $ "Class " ++ (show ident) ++ " not found."
 			(Just (base, atrs, fEnv')) -> do
-				put $ S (enterContext context (C ident None), ST (vEnv, fEnv', cEnv), fNone, lastLabel, regs)
+				put $ S (enterContext context (C ident None), ST (fEnv', cEnv), fNone, lastLabel, regs, pResults, cStr)
 				t <- fun
-				S (context', ST (vEnv', fEnv'', cEnv'), fNone, lastLabel, regs) <- get
-				put $ S (context, ST (vEnv', fEnv, M.insert ident (base, atrs, fEnv'') cEnv'), fNone, lastLabel, regs)
+				S (context', ST (fEnv'', cEnv'), fNone, lastLabel, regs, pResults, cStr) <- get
+				put $ S (context, ST (fEnv, M.insert ident (base, atrs, fEnv'') cEnv'), fNone, lastLabel, regs, pResults, cStr)
 				return t
 
 	runForFun ident fun = do
-		S (context, ST (vEnv, fEnv, cEnv), _, lastLabel, regs) <- get
+		S (context, ST (fEnv, cEnv), _, lastLabel, regs, pResults, cStr) <- get
 		case M.lookup ident fEnv of
 			Nothing -> fail $ "Class " ++ (show ident) ++ " not found."
 			(Just funInfo) -> do
-				put $ S (enterContext context (F ident), ST (vEnv, fEnv, cEnv), funInfo, lastLabel, regs)
+				put $ S (enterContext context (F ident), ST (fEnv, cEnv), funInfo, lastLabel, regs, pResults, cStr)
 				t <- fun
-				S (context', ST (vEnv', fEnv', cEnv'), funInfo, lastLabel', regs) <- get
-				put $ S (context, ST (vEnv', M.insert ident funInfo fEnv, cEnv), FNone, lastLabel', regs)
+				S (context', ST (fEnv', cEnv'), funInfo, lastLabel', regs, pResults, cStr) <- get
+				put $ S (context, ST (M.insert ident (funInfoWithEnv funInfo [clearVEnv]) fEnv, cEnv), FNone, lastLabel', regs, pResults, cStr)
 				return t
 
+	runForBlock fun = do
+		S (context, store, (FunInfo typ shift maxShift vEnvs), lastLabel, regs, pResults, cStr) <- get
+		put $ S (context, store,  FunInfo typ shift maxShift (clearVEnv:vEnvs), lastLabel, regs, pResults, cStr)
+		t <- fun
+		S (context, store, (FunInfo typ shift' maxShift' vEnvs), lastLabel, regs, pResults, cStr) <- get
+		put $ S (context, store, (FunInfo typ shift (min maxShift maxShift') (tail vEnvs)), lastLabel, regs, pResults, cStr)
+		return t
+		
 	local fun = do
 		state <- get
 		t <- fun
@@ -146,11 +223,125 @@ instance StoreOperations LState where
 		put $ state
 		return t
 
-	freeReg reg = do
+	freeReg r@(Reg r1 r2 r3) = do
+		S (context, store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		regs' <- freeReg' r regs
+		put $ S (context, store, fInfo, lastLabel, Regs regs', pResults, cStr)
+		where
+			freeReg' r1 [] = fail $ "No such register"
+			freeReg' r (r':rx) = do
+				if r == (reg r') then
+					return $ (R r Void):rx
+				else do
+					nRx <- freeReg' r rx
+					return (r':nRx)
 
-	getFreeReg
+	freeReg _ = do return ()
+
+	getFreeReg typ = do
+		S (context, store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		(r, regs') <- getFreeReg' typ regs
+		put $ S (context, store, fInfo, lastLabel, Regs regs', pResults, cStr)
+		return r
+
+	getFreeReg' typ [] = return (emptyReg, [])
+	getFreeReg' typ (r:rx) = do
+		if (rType r) == Void then
+			return (reg r, (R (reg r) typ):rx)
+		else do
+			(r', rx') <- getFreeReg' typ rx
+			return (r', r:rx')
+
+	getRegToSalvage typ = do
+		S (context, store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		put $ S (context, store, fInfo, lastLabel, Regs (getSalvagedReg regs), pResults, cStr)
+		return $ (reg $ head regs, rType $ head regs)
+		where
+			getSalvagedReg :: [ARegister] -> [ARegister]
+			getSalvagedReg (r:rx) = rx ++ [R (reg r) typ]
+			getSalvagedReg [] = []
+
+	restoreReg typ r = do
+		S (context, store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		put $ S (context, store, fInfo, lastLabel, Regs (restoreReg' typ r regs), pResults, cStr)
+		where
+			restoreReg' typ r1 (r2:rx) = if r1 == reg r2 then (R r typ):rx
+											else r2:(restoreReg' typ r1 rx)
+			restoreReg' _ _ [] = []
+
+	getUsedRegs = do
+		S (context, store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		return $ Prelude.filter (\r -> (rType r) /= Void) regs
+
+	getUsedRegsNonSafe = do
+		S (context,store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		return $ Prelude.filter (\r -> and [(rType r) /= Void, not $ elem (reg r) toSave]) regs
+
+
+	getFreeSafeRegs = do
+		S (context, store, fInfo, lastLabel, Regs regs, pResults, cStr) <- get
+		return $ Prelude.map (reg) $ Prelude.filter (\r -> and [(rType r) == Void, elem (reg r) toSave]) regs
+
+
+	getResultLoc rId = do
+		S (context, store, fInfo, lastLabel, regs, results, cStr) <- get
+		case M.lookup rId $ inUse results of
+			Nothing -> fail $ "No result " ++ (show rId) ++ " registered"
+			(Just result) -> return result
+
+	setResultLoc rId (object, typ) = do
+		S (context,store, fInfo, lastLabel, regs, results, cStr) <- get
+		put $ S (context, store, fInfo, lastLabel, regs, PR (M.insert rId (object, typ) (inUse results)) (nextFree results), cStr)
+
+	newResultLoc (object, typ) = do
+		S (context,store, fInfo, lastLabel, regs, results, cStr) <- get
+		put $ S (context, store, fInfo, lastLabel, regs, PR (M.insert (nextFree results) (object, typ) (inUse results)) ((nextFree results) + 1), cStr)
+		return $ nextFree results
+
+	getTotalShift = do
+		S (context, store, fInfo, lastLabel, regs, results, cStr) <- get
+		return $ totalShift fInfo
+
+	getCurrentShift = do
+		S (context, store, fInfo, lastLabel, regs, results, cStr) <- get
+		return $ nextVarShift fInfo
+
+	addjustShift = do
+		S (context, store, (FunInfo typ shift maxShift vars), lastLabel, regs, results, cStr) <- get
+		put $ S (context,store, (FunInfo typ (-(addjustTo16 (-shift))) (-(addjustTo16 (-maxShift))) vars), lastLabel, regs, results, cStr)
+
+	getStrDefs = do
+		S (context, store, fInfo, lastLabel, regs, results, cStr) <- get
+		return $ Prelude.map T.swap $ M.toList $ allString cStr
+
+	addString string = do
+		S (context, store, fInfo, lastLabel, regs, results, cStr) <- get
+		put $ S (context, store, fInfo, lastLabel, regs, results, SD (M.insert string (".S" ++ (show $ sId cStr)) $ allString cStr) (1 + (sId cStr)))
+
+	getStringId strId = do
+		S (context, store, fInfo, lastLabel, regs, results, cStr) <- get
+		case M.lookup strId $ allString cStr of
+			Nothing -> fail $ "String " ++ (show strId) ++ " is not defined"
+			(Just str) -> return str
+
+	addTmpVar size = do
+		S (context, store, (FunInfo typ currentShift maxShift vars), lastLabel, regs, results, cStr) <- get
+		put $ S (context, store, (FunInfo typ (currentShift - size) maxShift vars), lastLabel, regs, results, cStr)
+		return (currentShift - size)
+
+	delTmpVar size = do
+		S (context, store, (FunInfo typ currentShift maxShift vars), lastLabel, regs, results, cStr) <- get
+		put $ S (context, store, (FunInfo typ (currentShift + size) maxShift vars), lastLabel, regs, results, cStr)
+
+	setCurrentShift shift = do
+		S (context, store, (FunInfo typ currentShift maxShift vars), lastLabel, regs, results, cStr) <- get
+		put $ S (context, store, (FunInfo typ shift maxShift vars), lastLabel, regs, results, cStr)
 
 -- Context --
+
+addjustTo16 x = ((x `div` 16) + (if x `mod` 16 /= 0 then 1 else 0)) * 16
+
+isLoaded varInfo = location varInfo /= 0
 
 enterContext (C ident None) context = C ident context
 enterContext _ context = context
@@ -158,3 +349,5 @@ enterContext _ context = context
 getFunIdent (F ident) = Just ident
 getFunIdent (C ident context) = getFunIdent context
 getFunIdent None = Nothing
+
+funInfoWithEnv (FunInfo typ shift maxShift envs) newEnvs = (FunInfo typ shift maxShift newEnvs)
