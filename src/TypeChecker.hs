@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-module CompileLatte where
+module TypeChecker where
 
 import AbsLatte
 import Control.Monad.State
@@ -11,16 +11,6 @@ import Compile
 import Common
 import Predefined
 import ErrM
-
-compileProg :: Program -> Err String
-compileProg prog' = do
-	let prog = addPredefined prog' in do
-		state <- execStateT (collectTypes prog) $ clearState
-		state <- execStateT (checkType prog) $ state
-		(prog, state) <- runStateT (evalConst prog) $ state
-		(prog, state) <- runStateT (genProg' prog) state
-		--putStrLn (show prog)
-		return $ show prog
 
 class TypeChecker a where
 	checkType :: MonadState LState m => a -> m ()

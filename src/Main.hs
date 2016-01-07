@@ -8,19 +8,30 @@ import System.Exit ( exitFailure, exitSuccess )
 import System.FilePath.Posix
 import System.Exit
 import System.Process
+import Control.Monad.State
 
 import LexLatte
 import ParLatte
 import SkelLatte
 import PrintLatte
 import AbsLatte
-import CompileLatte
+import TypeChecker
 import TypeCollector
+import Compile
 import ConstEval
-
-
-
+import Predefined
+import LatteState
 import ErrM
+
+compileProg :: Program -> Err String
+compileProg prog' = do
+  let prog = addPredefined prog' in do
+    state <- execStateT (collectTypes prog) $ clearState
+    state <- execStateT (checkType prog) $ state
+    (prog, state) <- runStateT (evalConst prog) $ state
+    (prog, state) <- runStateT (genProg' prog) state
+    return $ show prog
+
 
 type ParseFun a = [Token] -> Err a
 

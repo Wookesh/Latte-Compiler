@@ -1,0 +1,23 @@
+Kompilacja:
+	uruchamiana poleceniem 
+		$ make
+	uruchamia kolejno:
+		bnfc,
+		happy,
+		alex,
+		ghc
+
+	wymagane biblioteki haskella:
+		Control.Monad.State
+
+Zawartosć:
+	na razie wersja podstawowa bez rozszerzeń
+
+Struktura projektu:
+	w katalogu src znajdują się źródła projektu
+	moduły są wydzilone ze względu na funkcjionalności
+	TypeCollector -> zbieranie definicji funkcji i stringów
+	TypeChecker -> kontrola typów
+	ConstEval -> wylicznie stałych wyrażeń
+	Compile -> kompilacja do x86
+
