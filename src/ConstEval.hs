@@ -5,6 +5,7 @@ import AbsLatte
 import Control.Monad.State
 import LatteState
 import Common
+import TypeChecker
 
 class ConstexprEvaluator a where
 	evalConst :: MonadState LState m => a -> m a
@@ -21,17 +22,25 @@ instance ConstexprEvaluator TopDef where
 		return $ TopFun newFunDef
 
 	evalConst (ClassDef ident classBlock) = do
-		newClassBlock <- evalConst classBlock
+		newClassBlock <- runForClass ident $ evalConst classBlock
 		return $ ClassDef ident newClassBlock
 
 	evalConst (ClassDefE ident1 ident2 classBlock) = do
-		newClassBlock <- evalConst classBlock
+		newClassBlock <- runForClass ident1 $ evalConst classBlock
 		return $ ClassDefE ident1 ident2 newClassBlock
 
 instance ConstexprEvaluator FunDef where
-	evalConst (FnDef typ ident arg block) = do
-		newBlock <- runForFun ident $ evalConst block
-		return $ FnDef typ ident arg newBlock
+	evalConst f@(FnDef typ ident args block) = do
+		ret <- runForFun ident $ go f
+		return ret
+		where 
+			go (FnDef typ ident args block) = do
+				forM_ args declParam
+				newBlock <- evalConst block
+				return (FnDef typ ident args newBlock)
+	 		
+	 		declParam (Arg typ ident) = do
+	 			declNoShift ident typ
 
 instance ConstexprEvaluator ClassBlock where
 	evalConst (ClassBlock classElems) = do
@@ -48,7 +57,7 @@ instance ConstexprEvaluator ClassElem where
 
 instance ConstexprEvaluator Block where
 	evalConst (Block stmts) = do
-		newStmts <- forM stmts evalConst
+		newStmts <- runForBlock $ forM stmts evalConst
 		return $ Block newStmts
 
 instance ConstexprEvaluator Stmt where
@@ -58,6 +67,7 @@ instance ConstexprEvaluator Stmt where
 		return $ BStmt newBlock
 
 	evalConst (Decl typ items) = do
+		forM items $ declItem typ
 		newItems <- forM items evalConst
 		return $ Decl typ newItems
 
@@ -106,6 +116,10 @@ instance ConstexprEvaluator Stmt where
 		newStmt <- evalConst stmt
 		return $ While newExpr newStmt
 
+	evalConst (SExp expr) = do
+		newExpr <- evalConst expr
+		return $ SExp newExpr
+
 	evalConst stmt = return stmt
 
 instance ConstexprEvaluator Item where
@@ -116,6 +130,10 @@ instance ConstexprEvaluator Item where
 	evalConst item = return item
 
 instance ConstexprEvaluator Expr where
+
+	evalConst (EApp ident exprs) = do
+		newExprs <- forM exprs evalConst
+		return (EApp ident newExprs)
 
 	evalConst (Not expr) = do
 		newExpr <- evalConst expr
@@ -166,7 +184,12 @@ instance ConstexprEvaluator Expr where
 				case op of
 					Plus -> return $ ELitInt (n1 + n2)
 					Minus -> return $ ELitInt (n1 - n2)
-			(_, _) -> return $ EAdd newExpr1 op newExpr2
+			(_, _) -> do
+				typ <- getType expr1
+				if and [typ == Str, op == Plus] then
+					return $ EApp (Ident "__add_str") [newExpr1,newExpr2]
+				else 
+					return $ EAdd newExpr1 op newExpr2
  
 
 	evalConst (EAnd expr1 expr2) = do

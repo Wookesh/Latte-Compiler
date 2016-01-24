@@ -6,7 +6,7 @@ typeSize Int = 4
 typeSize Bool = 1
 typeSize Void = 0
 typeSize Str = 8
-typeSize _ = 4
+typeSize _ = 8
 
 opposite LTH = GTH
 opposite LE = GE

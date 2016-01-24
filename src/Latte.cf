@@ -26,7 +26,7 @@ ClassBlock. ClassBlock ::=  "{" [ClassElem] "}" ;
 
 ClassFun.	ClassElem ::= FunDef ;
 
-ClassAtr.	ClassElem ::= Type Ident ;
+ClassAtr.	ClassElem ::= Type Ident ";" ;
 
 separator	 ClassElem "" ;
 
@@ -50,6 +50,10 @@ separator nonempty Item "," ;
 
 Ass.       Stmt ::= Ident "=" Expr  ";" ;
 
+ArrAss.    Stmt ::= ArrAccess "=" Expr ";" ;
+
+FldAss.    Stmt ::= FieldAccess "=" Expr ";" ;
+
 Incr.      Stmt ::= Ident "++"  ";" ;
 
 Decr.      Stmt ::= Ident "--"  ";" ;
@@ -63,6 +67,8 @@ Cond.      Stmt ::= "if" "(" Expr ")" Stmt  ;
 CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
 
 While.     Stmt ::= "while" "(" Expr ")" Stmt ;
+
+For.	   Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt ;
 
 SExp.      Stmt ::= Expr  ";" ;
 
@@ -95,6 +101,8 @@ EFld.      Expr6 ::= FieldAccess ;
 EMth.      Expr6 ::= MethCall ;
 
 EObj.      Expr6 ::= Alloc ;
+
+ENullCast. Expr6 ::= "(" Type ")null" ;
 
 ENArr.     Expr6 ::= NewArr;
 
@@ -149,7 +157,8 @@ FAcc.     FieldAccess ::= SpecExp "." Ident ;
 
 -- Method Call ---------------------------------------------
 
-MCall.    MethCall ::= FieldAccess "(" [Expr] ")" ;
+MCall.    MethCall ::= Ident "." Ident "(" [Expr] ")" ;
+MSCall.    MethCall ::= SpecExp "." Ident "(" [Expr] ")" ;
 
 -- Allocation ----------------------------------------------
 

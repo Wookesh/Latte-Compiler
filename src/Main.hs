@@ -22,6 +22,7 @@ import ConstEval
 import Predefined
 import LatteState
 import ErrM
+import Optimize
 
 compileProg :: Program -> Err String
 compileProg prog' = do
@@ -29,8 +30,9 @@ compileProg prog' = do
     state <- execStateT (collectTypes prog) $ clearState
     state <- execStateT (checkType prog) $ state
     (prog, state) <- runStateT (evalConst prog) $ state
-    (prog, state) <- runStateT (genProg' prog) state
-    return $ show prog
+    (aprog, state) <- runStateT (genProg' prog) state
+    --(aprog, state') <- runStateT (optimizeProg aprog) $ clearOptState
+    return $ show aprog
 
 
 type ParseFun a = [Token] -> Err a

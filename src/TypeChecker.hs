@@ -5,9 +5,7 @@ module TypeChecker where
 import AbsLatte
 import Control.Monad.State
 import LatteState
-import TypeCollector
-import ConstEval
-import Compile
+--import Compile
 import Common
 import Predefined
 import ErrM
@@ -90,8 +88,6 @@ instance TypeChecker Block where
 			True -> return ()
 			False -> if typ == Void then return () else fail $ "No return at the end of " ++ (show e)
 
-
-
 instance TypeChecker Stmt where
 	checkType (Empty) = do
 		return ()
@@ -107,6 +103,16 @@ instance TypeChecker Stmt where
 		typ1 <- checkAndGetType expr
 		typ2 <- getVarType ident
 		isType typ2 typ1 e
+
+	checkType e@(ArrAss arrAccess expr) = do
+		typ1 <- checkAndGetType arrAccess
+		typ2 <- checkAndGetType expr
+		isType typ1 typ2 e
+
+	checkType e@(FldAss fieldAccess expr) = do
+		typ1 <- checkAndGetType fieldAccess
+		typ2 <- checkAndGetType expr
+		isType typ1 typ2 e
 
 	checkType e@(Incr ident) = do
 		typ <- getVarType ident
@@ -149,6 +155,19 @@ instance TypeChecker Stmt where
 		typ <- getType expr
 		isType Bool typ expr
 		checkType stmt
+
+	checkType (For typ ident expr stmt) = do
+		typ' <- checkAndGetType expr
+		case typ' of
+			(Array typ') -> do 
+				isType typ' typ expr
+				runForBlock $ go 
+			_ -> fail $ "Must iterate on array."
+		where
+			go = do
+				declNoShift ident typ
+				checkType stmt
+				return ()
 
 	checkType (SExp expr) = do
 		checkType expr
@@ -193,12 +212,24 @@ instance TypeChecker Expr where
 	checkType (EApp ident exprs) = do
 		types1 <- forM exprs checkAndGetType
 		(Fun typ types2) <- getFunType ident
-		if (length types1) /= (length types2) then
+		if (length types1) /= (length types2) then do
 			fail $ "Wrong number of parameters in " ++ (show ident) ++ ". Should be " ++ (show $ length types2) ++ " is " ++ (show $ length types1) ++ "\n"
 		else do
 			forM (zip types1 (zip types2 exprs)) (\(t1,(t2,e)) -> do isType t2 t1 e)
 			return ()
 	
+	checkType (EFld fieldAccess) = do
+		checkType fieldAccess
+
+	checkType (EMth methCall) = do
+		checkType methCall
+
+	checkType (EObj alloc) = do
+		return ()
+
+	checkType (ENullCast typ) = do
+		return ()
+
 	checkType (EString str) = do
 		return ()
 
@@ -249,8 +280,23 @@ instance TypeChecker Expr where
 		typ <- getVarType ident
 		return typ
 
+	getType (EFld fieldAccess) = do
+		typ <- getType fieldAccess
+		return typ
+
 	getType (EArr arrAccess) = do
 		typ <- getType arrAccess
+		return typ
+
+	getType (EMth methCall) = do
+		typ <- getType methCall
+		return typ
+
+	getType (EObj alloc) = do
+		typ <- getType alloc
+		return typ
+
+	getType (ENullCast typ) = do
 		return typ
 
 	getType (ENArr newArr) = do
@@ -298,20 +344,149 @@ instance TypeChecker Expr where
 		return Bool
 
 instance TypeChecker ArrAccess where
+	checkType a@(ASimple ident expr) = do
+		typ <- checkAndGetType expr
+		isType Int typ expr
+		typ' <- getVarType ident
+		case typ' of
+			(Array _) -> return ()
+			_ -> fail $ "tried to use [] on non array type."
+
+	checkType (AField specExpr expr) = do
+		typ <- checkAndGetType expr
+		isType Int typ expr
+		typ' <- checkAndGetType specExpr
+		case typ' of
+			(Array _) -> return ()
+			_ -> fail $ "tried to use [] on non array type."
+
+
 	getType (ASimple ident expr) = do
 		typ <- getVarType ident
 		case typ of
-			(Array typ) -> return typ
-			_ -> fail $ (show ident) ++ "is not an array."
+			(Array typ') -> return typ'
+			_ -> fail $ (show ident) ++ " is not an array."
+
+	getType (AField specExpr expr) = do
+		typ <- getType specExpr
+		case typ of
+			(Array typ') -> return typ'
+			_ -> fail $ (show specExpr) ++ " is not an array."
 
 instance TypeChecker NewArr where
 	getType (NewArr typ expr) = do
 		return $ Array typ
 
+instance TypeChecker FieldAccess where
+	checkType (FSAcc ident ident2) = do
+		typ <- getVarType ident
+		case typ of
+			(Array _) -> if ident2 == (Ident "length") then return ()
+							else fail $ "Arrays only have attribute 'length'"
+			_ -> do
+				typ <- getFieldType typ ident2
+				return ()
 
-isType :: (MonadState s m, Show a) => Type -> Type -> a -> m ()
+	checkType (FAcc specExpr ident) = do
+		typ <- checkAndGetType specExpr
+		typ <- getFieldType typ ident
+		return ()
+
+	getType (FSAcc ident ident2) = do
+		typ <- getVarType ident
+		case typ of
+			(Array _) -> if ident2 == (Ident "length") then return Int
+							else fail $ "Arrays only have attribute 'length'"
+			_ -> do
+				typ <- getFieldType typ ident2
+				return typ
+
+	getType (FAcc specExpr ident) = do
+		typ <- getType specExpr
+		typ <- getFieldType typ ident
+		return typ
+
+instance TypeChecker MethCall where
+	checkType (MCall oIdent mIdent exprs) = do
+		typ <- getVarType oIdent
+		case typ of
+			(Class cIdent) -> do
+				methInfo <- getMethod cIdent mIdent
+				types <- forM exprs checkAndGetType
+				let (Fun typ types2) = fType methInfo in do
+					forM (zip types (zip (tail types2) exprs)) (\(t1,(t2,e)) -> do isType t2 t1 e)
+					return ()
+			_ -> fail $ (show oIdent) ++ "is not an object."
+
+	checkType (MSCall specExpr mIdent exprs) = do
+		typ <- getType specExpr
+		case typ of
+			(Class cIdent) -> do
+				methInfo <- getMethod cIdent mIdent
+				types <- forM exprs checkAndGetType
+				let (Fun typ types2) = fType methInfo in do
+					forM (zip types (zip (tail types2) exprs)) (\(t1,(t2,e)) -> do isType t2 t1 e)
+					return ()
+			_ -> fail $ (show specExpr) ++ "is not an object."
+
+	getType (MCall oIdent mIdent exprs) = do
+		typ <- getVarType oIdent
+		case typ of
+			(Class cIdent) -> do
+				methInfo <- getMethod cIdent mIdent
+				let (Fun typ types) = fType methInfo in return typ
+			_ -> fail $ (show oIdent) ++ "is not an object."
+
+	getType (MSCall specExpr mIdent exprs) = do
+		typ <- getType specExpr
+		case typ of
+			(Class cIdent) -> do
+				methInfo <- getMethod cIdent mIdent
+				let (Fun typ types) = fType methInfo in return typ
+			_ -> fail $ (show specExpr) ++ "is not an object."
+
+instance TypeChecker SpecExp where
+	checkType (SAcc fieldAccess) = do
+		checkType fieldAccess
+
+	checkType (SArr arrAccess) = do
+		checkType arrAccess
+
+	checkType _ = do
+		fail $ "not implemented yet."
+
+	getType (SAcc fieldAccess) = do
+		typ <- getType fieldAccess
+		return typ
+
+	getType (SArr arrAccess) = do
+		typ <- getType arrAccess
+		return typ
+
+	getType _ = do
+		fail $ "not implemented yet."
+
+instance TypeChecker Alloc where
+	getType (Alloc ident) = do
+		return (Class ident)
+
+isType :: (MonadState LState m, Show a) => Type -> Type -> a -> m ()
 isType expected actual struct = do
-	if expected /= actual then
+	derived <- isDerived actual expected
+	if and[expected /= actual, not derived] then
 		fail $ "In expression (" ++ (show struct) ++ ") expected type : " ++ (show expected) ++ " mismaches with actual type : " ++ (show actual) ++ "."
 	else do
 		return ()	
+
+isDerived :: MonadState LState m => Type -> Type -> m Bool
+isDerived (Class (Ident "")) (Class ident2) = return False
+isDerived (Class ident) (Class ident2) = do
+	classInfo <- getClassInfo ident
+	if (derives classInfo) == ident2 then do
+		return True
+	else do
+		derived <- isDerived (Class $ derives classInfo) (Class ident2)
+		return derived
+
+isDerived _ _ = return False
+

@@ -18,18 +18,17 @@ instance TypeCollector TopDef where
 		collectTypes funDef
 
 	collectTypes (ClassDef ident classBlock) = do
-		addClass ident classBlock
-		runInContext (C ident None) $ collectTypes classBlock
+		addClass ident
+		runForClassDecl ident $ collectTypes classBlock
 
 	collectTypes (ClassDefE ident base classBlock) = do
-		addClassE ident base classBlock
-		runForClass ident $ collectTypes classBlock
+		addClassE ident base
+		runForClassDecl ident $ collectTypes classBlock
 
 instance TypeCollector FunDef where
 	collectTypes (FnDef typ ident args block) = do
 		types <- getArgsTypes args
 		defFun ident $ Fun typ types
-		--runForFun ident $ forM_ args collectTypes
 		runForFun ident $ collectTypes block
 		return ()
 
@@ -43,7 +42,8 @@ instance TypeCollector ClassBlock where
 
 instance TypeCollector ClassElem where
 	collectTypes (ClassAtr typ ident) = do
-		return ()
+		defAttr ident typ
+
 	collectTypes (ClassFun funDef) = do
 		collectTypes funDef
 
